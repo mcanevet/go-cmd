@@ -32,10 +32,11 @@ func (suite *ReaperSuite) TestNoActivity() {
 
 func (suite *ReaperSuite) TestNoNotify() {
 	const N = 5
+
 	commands := make([]*exec.Cmd, N)
 
 	for i := range commands {
-		commands[i] = exec.Command("/bin/sh", "-c", ":")
+		commands[i] = exec.CommandContext(suite.T().Context(), "/bin/sh", "-c", ":")
 		suite.Assert().NoError(commands[i].Start())
 	}
 
@@ -50,6 +51,7 @@ func (suite *ReaperSuite) TestNoNotify() {
 
 func (suite *ReaperSuite) TestNotifyStop() {
 	const N = 5
+
 	commands := make([]*exec.Cmd, N)
 
 	notifyCh := make([]chan reaper.ProcessInfo, 2)
@@ -61,7 +63,7 @@ func (suite *ReaperSuite) TestNotifyStop() {
 	expectedPids := make([]int, N)
 
 	for i := range commands {
-		commands[i] = exec.Command("/bin/sh", "-c", ":")
+		commands[i] = exec.CommandContext(suite.T().Context(), "/bin/sh", "-c", ":")
 		suite.Require().NoError(commands[i].Start())
 		expectedPids[i] = commands[i].Process.Pid
 	}
@@ -99,7 +101,7 @@ func (suite *ReaperSuite) TestNotifyStop() {
 
 	reaper.Stop(notifyCh[0])
 
-	command := exec.Command("/bin/sh", "-c", ":")
+	command := exec.CommandContext(suite.T().Context(), "/bin/sh", "-c", ":")
 	suite.Require().NoError(command.Start())
 
 	// notification should come on still active notify channel
@@ -122,7 +124,7 @@ func (suite *ReaperSuite) TestFailedProcess() {
 	reaper.Notify(notifyCh)
 	defer reaper.Stop(notifyCh)
 
-	command := exec.Command("/bin/sh", "-c", "exit 3")
+	command := exec.CommandContext(suite.T().Context(), "/bin/sh", "-c", "exit 3")
 	suite.Require().NoError(command.Start())
 
 	info := <-notifyCh
@@ -175,7 +177,7 @@ func (suite *ReaperSuite) TestWait() {
 	defer reaper.Stop(notifyCh)
 
 	for _, t := range tests {
-		cmd := exec.Command(t.args.name, t.args.args...)
+		cmd := exec.CommandContext(suite.T().Context(), t.args.name, t.args.args...)
 		suite.Require().NoError(cmd.Start())
 
 		err := reaper.WaitWrapper(true, notifyCh, cmd)
@@ -230,7 +232,7 @@ func (suite *ReaperSuite) TestProcessWait() {
 	defer reaper.Stop(notifyCh)
 
 	for _, t := range tests {
-		cmd := exec.Command(t.args.name, t.args.args...)
+		cmd := exec.CommandContext(suite.T().Context(), t.args.name, t.args.args...)
 		suite.Require().NoError(cmd.Start())
 
 		err := reaper.ProcessWaitWrapper(true, notifyCh, cmd.Process)

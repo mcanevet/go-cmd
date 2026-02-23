@@ -6,6 +6,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -44,17 +45,77 @@ func WithStdin(ctx context.Context, stdinData io.Reader) context.Context {
 }
 
 // Run executes a command.
+//
+// Deprecated: Use RunContext instead, which allows passing a context.
 func Run(name string, args ...string) (string, error) {
 	return RunContext(context.Background(), name, args...)
 }
 
 // RunContext executes a command with context.
+//
+// Deprecated: use RunWithOptions instead, which allows passing options properly.
 func RunContext(ctx context.Context, name string, args ...string) (string, error) {
+	var opts []Option
+
+	if stdin := ctx.Value(stdin); stdin != nil {
+		stdinReader, ok := stdin.(io.Reader)
+		if !ok {
+			return "", fmt.Errorf("failed to read stdin object from the context")
+		}
+
+		opts = append(opts, WithStandardInput(stdinReader))
+	}
+
+	return RunWithOptions(ctx, name, args, opts...)
+}
+
+// Options are used to configure the command execution.
+type Options struct {
+	Stdin             io.Reader
+	CaptureFullStdout bool
+}
+
+// Option is a function that applies a configuration to the Options struct.
+type Option func(*Options)
+
+// WithStandardInput returns an Option that sets the stdin for the command.
+func WithStandardInput(stdin io.Reader) Option {
+	return func(opts *Options) {
+		opts.Stdin = stdin
+	}
+}
+
+// WithFullStdoutCapture returns an Option that enables capturing the full stdout output.
+func WithFullStdoutCapture() Option {
+	return func(opts *Options) {
+		opts.CaptureFullStdout = true
+	}
+}
+
+// RunWithOptions executes a command with context and options.
+func RunWithOptions(ctx context.Context, name string, args []string, options ...Option) (string, error) {
+	var opts Options
+
+	for _, option := range options {
+		option(&opts)
+	}
+
 	cmd := exec.CommandContext(ctx, name, args...)
 
-	stdout, err := circbuf.NewBuffer(MaxStderrLen)
-	if err != nil {
-		return stdout.String(), err
+	var stdout interface {
+		io.Writer
+		String() string
+	}
+
+	if opts.CaptureFullStdout {
+		stdout = new(bytes.Buffer)
+	} else {
+		var err error
+
+		stdout, err = circbuf.NewBuffer(MaxStderrLen)
+		if err != nil {
+			return stdout.String(), err
+		}
 	}
 
 	stderr, err := circbuf.NewBuffer(MaxStderrLen)
@@ -62,18 +123,9 @@ func RunContext(ctx context.Context, name string, args ...string) (string, error
 		return stdout.String(), err
 	}
 
-	stdin := ctx.Value(stdin)
-	if stdin != nil {
-		var ok bool
-
-		cmd.Stdin, ok = stdin.(io.Reader)
-		if !ok {
-			return "", fmt.Errorf("failed to read stdin object from the context")
-		}
-	}
-
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
+	cmd.Stdin = opts.Stdin
 
 	notifyCh := make(chan reaper.ProcessInfo, 8)
 	usingReaper := reaper.Notify(notifyCh)

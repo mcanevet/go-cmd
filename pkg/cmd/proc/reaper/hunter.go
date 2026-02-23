@@ -50,6 +50,7 @@ func (zh *zombieHunter) Shutdown() {
 	}
 
 	zh.shutdown <- struct{}{}
+
 	<-zh.shutdown
 }
 

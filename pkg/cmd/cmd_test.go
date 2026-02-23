@@ -100,21 +100,55 @@ func (suite *CmdSuite) TestRun() {
 	}
 
 	for _, t := range tests {
-		println(t.name)
+		suite.Run(t.name, func() {
+			// legacy API
+			_, err := cmd.Run(t.args.name, t.args.args...)
 
-		_, err := cmd.Run(t.args.name, t.args.args...)
+			if t.wantErr {
+				suite.Assert().Error(err)
+				suite.Assert().Equal(t.errString, err.Error())
+			} else {
+				suite.Assert().NoError(err)
+			}
 
-		if t.wantErr {
-			suite.Assert().Error(err)
-			suite.Assert().Equal(t.errString, err.Error())
-		} else {
-			suite.Assert().NoError(err)
-		}
+			// modern API
+			_, err = cmd.RunWithOptions(suite.T().Context(), t.args.name, t.args.args)
+			if t.wantErr {
+				suite.Assert().Error(err)
+				suite.Assert().Equal(t.errString, err.Error())
+			} else {
+				suite.Assert().NoError(err)
+			}
+		})
 	}
 
+	// legacy API
 	stdout, err := cmd.RunContext(cmd.WithStdin(context.Background(), strings.NewReader("hello")), "xargs", "echo")
 	suite.Assert().NoError(err)
-	suite.Assert().Equal(stdout, "hello\n")
+	suite.Assert().Equal("hello\n", stdout)
+
+	// modern API
+	stdout, err = cmd.RunWithOptions(suite.T().Context(), "xargs", []string{"echo"}, cmd.WithStandardInput(strings.NewReader("hello")))
+	suite.Assert().NoError(err)
+	suite.Assert().Equal("hello\n", stdout)
+}
+
+// TestLargeStdout verifies that stdout output exceeding the old 4096-byte limit
+// (previously shared with MaxStderrLen) is not silently truncated.
+func (suite *CmdSuite) TestLargeStdout() {
+	// Generate output larger than the old 4096-byte stderr buffer.
+	// printf '%6000s' pads an empty string to 6000 chars; tr converts spaces to 'x'.
+	const wantLen = 6000
+
+	// first, run with truncated output to verify that the test is valid
+	stdout, err := cmd.RunWithOptions(suite.T().Context(), "/bin/sh", []string{"-c", fmt.Sprintf("printf '%%%ds' '' | tr ' ' 'x'", wantLen)})
+	suite.Require().NoError(err)
+	suite.Assert().Len(stdout, cmd.MaxStderrLen, "stdout should be truncated at the old 4096-byte limit")
+
+	// now, run with full captured output
+	stdout, err = cmd.RunWithOptions(suite.T().Context(), "/bin/sh", []string{"-c", fmt.Sprintf("printf '%%%ds' '' | tr ' ' 'x'", wantLen)}, cmd.WithFullStdoutCapture())
+	suite.Require().NoError(err)
+	suite.Assert().Len(stdout, wantLen, "stdout should not be truncated with full capture enabled")
 }
 
 func TestCmdSuite(t *testing.T) {
